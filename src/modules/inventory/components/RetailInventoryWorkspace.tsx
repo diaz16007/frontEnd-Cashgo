@@ -1,5 +1,5 @@
 import type { KeyboardEvent, ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   RetailProductCreateWorkspace,
@@ -299,6 +299,7 @@ function IconButton({ label, tooltip, onClick, children }: IconButtonProps) {
         onClick={onClick}
       >
         {children}
+        <span className={styles.mobileActionLabel}>{label}</span>
       </button>
       <span className={styles.tooltipBubble}>{tooltip}</span>
     </div>
@@ -414,6 +415,8 @@ export function RetailInventoryWorkspace() {
   const [assignedProductSearchTerm, setAssignedProductSearchTerm] = useState('')
   const [taxProductSearchTerm, setTaxProductSearchTerm] = useState('')
   const [isCreateMenuOpen, setCreateMenuOpen] = useState(false)
+  const createMenuRef = useRef<HTMLDivElement>(null)
+  const tableSectionRef = useRef<HTMLElement>(null)
   const [isCategoriesDrawerOpen, setCategoriesDrawerOpen] = useState(false)
   const [isCategoryEditorOpen, setCategoryEditorOpen] = useState(false)
   const [isSharePhoneModalOpen, setSharePhoneModalOpen] = useState(false)
@@ -470,6 +473,32 @@ export function RetailInventoryWorkspace() {
       ),
     )
   }, [products])
+
+  useEffect(() => {
+    if (!isCreateMenuOpen) {
+      return undefined
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!createMenuRef.current?.contains(event.target as Node)) {
+        setCreateMenuOpen(false)
+      }
+    }
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setCreateMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isCreateMenuOpen])
 
   const categoryNameById = useMemo(
     () => new Map(categories.map((category) => [category.id, category.name])),
@@ -600,6 +629,25 @@ export function RetailInventoryWorkspace() {
     setCategoryEditorOpen(false)
     setCategoryEditorState(createDefaultCategoryEditorState())
     setAssignedProductSearchTerm('')
+  }
+
+  function handleClosePurchaseDrawer() {
+    setPurchaseDrawerOpen(false)
+    setPurchaseFormState(createDefaultPurchaseFormState())
+  }
+
+  function handleCloseAdjustmentDrawer() {
+    setAdjustmentDrawerOpen(false)
+    setAdjustmentFormState(createDefaultAdjustmentFormState())
+  }
+
+  function handleCloseTaxesDrawer() {
+    setTaxesDrawerOpen(false)
+    setTaxPickerOpen(false)
+    setTaxOptionsOpen(false)
+    setTaxPickerCategoryId(null)
+    setTaxProductSearchTerm('')
+    setTaxFormState(createDefaultTaxFormState())
   }
 
   function handleOpenCreateCategory() {
@@ -1037,16 +1085,6 @@ export function RetailInventoryWorkspace() {
     </>
   ) : undefined
 
-  function handleRowKeyDown(
-    event: KeyboardEvent<HTMLTableRowElement>,
-    nextProductId: string,
-  ) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      handleOpenEditProduct(nextProductId)
-    }
-  }
-
   if (isProductWorkspaceOpen) {
     return (
       <RetailProductCreateWorkspace
@@ -1077,8 +1115,10 @@ export function RetailInventoryWorkspace() {
             <span>{copy.categories}</span>
           </button>
 
-          <div className={styles.dropdownGroup}>
+          <div className={styles.dropdownGroup} ref={createMenuRef}>
             <button
+              aria-expanded={isCreateMenuOpen}
+              aria-haspopup="menu"
               className={styles.headerPrimaryButton}
               type="button"
               onClick={() => setCreateMenuOpen((currentValue) => !currentValue)}
@@ -1089,9 +1129,10 @@ export function RetailInventoryWorkspace() {
             </button>
 
             {isCreateMenuOpen ? (
-              <div className={styles.dropdownMenu}>
+              <div className={styles.dropdownMenu} role="menu">
                 <button
                   className={styles.dropdownButton}
+                  role="menuitem"
                   type="button"
                   onClick={handleOpenManualCreateDrawer}
                 >
@@ -1100,6 +1141,7 @@ export function RetailInventoryWorkspace() {
                 <button
                   className={`${styles.dropdownButton} ${styles.dropdownButtonMuted}`}
                   disabled
+                  role="menuitem"
                   type="button"
                 >
                   {copy.uploadProductsExcel}
@@ -1113,6 +1155,7 @@ export function RetailInventoryWorkspace() {
 
       {feedbackMessage ? (
         <div
+          aria-live={feedbackMessage.tone === 'error' ? 'assertive' : 'polite'}
           className={
             feedbackMessage.tone === 'error'
               ? styles.feedbackError
@@ -1120,6 +1163,7 @@ export function RetailInventoryWorkspace() {
                 ? styles.feedbackInfo
                 : styles.feedbackSuccess
           }
+          role={feedbackMessage.tone === 'error' ? 'alert' : 'status'}
         >
           <span>{feedbackMessage.text}</span>
           <button
@@ -1154,6 +1198,13 @@ export function RetailInventoryWorkspace() {
             onClick={() => {
               setActiveInventoryFilter('LOW')
               setActiveCategoryId(null)
+              window.requestAnimationFrame(() => {
+                tableSectionRef.current?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start',
+                })
+                tableSectionRef.current?.focus({ preventScroll: true })
+              })
             }}
           >
             {copy.viewProducts}
@@ -1197,7 +1248,11 @@ export function RetailInventoryWorkspace() {
         </article>
       </section>
 
-      <section className={retailStyles.tableCard}>
+      <section
+        className={retailStyles.tableCard}
+        ref={tableSectionRef}
+        tabIndex={-1}
+      >
         <div className={styles.tableToolbar}>
           <div className={styles.tableFilters}>
             <label className={styles.tableSearch}>
@@ -1226,6 +1281,21 @@ export function RetailInventoryWorkspace() {
                     {category.name}
                   </option>
                 ))}
+              </select>
+            </label>
+
+            <label className={styles.compactSelectWrap}>
+              <span aria-hidden="true">●</span>
+              <select
+                aria-label={copy.stockStatus}
+                className={styles.compactSelect}
+                value={activeInventoryFilter}
+                onChange={(event) =>
+                  setActiveInventoryFilter(event.target.value as InventoryFilter)
+                }
+              >
+                <option value="ALL">{copy.allProducts}</option>
+                <option value="LOW">{copy.lowStockOnly}</option>
               </select>
             </label>
 
@@ -1319,11 +1389,7 @@ export function RetailInventoryWorkspace() {
                 return (
                   <tr
                     key={product.id}
-                    className={`${styles.tableRowClickable} ${isLowStock ? styles.tableRowLowStock : ''}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => handleOpenEditProduct(product.id)}
-                    onKeyDown={(event) => handleRowKeyDown(event, product.id)}
+                    className={isLowStock ? styles.tableRowLowStock : undefined}
                   >
                     <td>
                       <div className={styles.productCell}>
@@ -1691,7 +1757,7 @@ export function RetailInventoryWorkspace() {
               <button
                 className={styles.footerCancelButton}
                 type="button"
-                onClick={() => setTaxesDrawerOpen(false)}
+                onClick={handleCloseTaxesDrawer}
               >
                 {copy.cancel}
               </button>
@@ -1708,12 +1774,7 @@ export function RetailInventoryWorkspace() {
             </>
           }
           title={copy.productTaxes}
-          onClose={() => {
-            setTaxesDrawerOpen(false)
-            setTaxPickerOpen(false)
-            setTaxOptionsOpen(false)
-            setTaxPickerCategoryId(null)
-          }}
+          onClose={handleCloseTaxesDrawer}
         >
           <div className={styles.drawerStack}>
             <div className={styles.taxSelectionCard}>
@@ -1789,8 +1850,19 @@ export function RetailInventoryWorkspace() {
 
             <div className={styles.taxIncludedCard}>
               <TaxIcon />
-              <span>{copy.taxIncludedInPrice}</span>
-              <span aria-label={copy.enabled} className={styles.staticToggle}>
+              <span className={styles.taxIncludedCopy}>
+                <span>{copy.taxIncludedInPrice}</span>
+                <small>{copy.taxIncludedCoreHint}</small>
+              </span>
+              <span
+                aria-checked="true"
+                aria-disabled="true"
+                aria-label={copy.enabled}
+                className={styles.staticToggle}
+                role="switch"
+                tabIndex={0}
+                title={copy.taxIncludedCoreHint}
+              >
                 <span />
               </span>
             </div>
@@ -1909,25 +1981,34 @@ export function RetailInventoryWorkspace() {
       {isAdjustmentDrawerOpen ? (
         <DrawerShell
           footer={
-            <button
-              className={retailStyles.buttonDark}
-              disabled={
-                !adjustmentFormState.productId ||
-                (adjustmentFormState.type === 'ADJUSTMENT'
-                  ? parseNonNegativeNumber(adjustmentFormState.quantity) < 0
-                  : parsePositiveNumber(adjustmentFormState.quantity) <= 0) ||
-                createAdjustmentMutation.isPending
-              }
-              type="button"
-              onClick={() => {
-                void handleRegisterAdjustment()
-              }}
-            >
-              {copy.adjustmentSubmit}
-            </button>
+            <>
+              <button
+                className={styles.footerCancelButton}
+                type="button"
+                onClick={handleCloseAdjustmentDrawer}
+              >
+                {copy.cancel}
+              </button>
+              <button
+                className={styles.drawerPrimaryButton}
+                disabled={
+                  !adjustmentFormState.productId ||
+                  (adjustmentFormState.type === 'ADJUSTMENT'
+                    ? parseNonNegativeNumber(adjustmentFormState.quantity) < 0
+                    : parsePositiveNumber(adjustmentFormState.quantity) <= 0) ||
+                  createAdjustmentMutation.isPending
+                }
+                type="button"
+                onClick={() => {
+                  void handleRegisterAdjustment()
+                }}
+              >
+                {copy.adjustmentSubmit}
+              </button>
+            </>
           }
           title={copy.adjustmentTitle}
-          onClose={() => setAdjustmentDrawerOpen(false)}
+          onClose={handleCloseAdjustmentDrawer}
         >
           <div className={styles.drawerStack}>
             <p className={styles.drawerDescription}>
@@ -2039,7 +2120,7 @@ export function RetailInventoryWorkspace() {
               <button
                 className={styles.footerCancelButton}
                 type="button"
-                onClick={() => setPurchaseDrawerOpen(false)}
+                onClick={handleClosePurchaseDrawer}
               >
                 {copy.cancel}
               </button>
@@ -2061,7 +2142,7 @@ export function RetailInventoryWorkspace() {
             </>
           }
           title={copy.purchaseTitle}
-          onClose={() => setPurchaseDrawerOpen(false)}
+          onClose={handleClosePurchaseDrawer}
         >
           <div className={styles.drawerStack}>
             <label className={styles.fieldGroup}>
@@ -2092,7 +2173,9 @@ export function RetailInventoryWorkspace() {
                 <input
                   className={styles.textInput}
                   inputMode="decimal"
+                  min="1"
                   placeholder="Ej: 10"
+                  step="1"
                   type="number"
                   value={purchaseFormState.quantity}
                   onChange={(event) =>
@@ -2109,7 +2192,9 @@ export function RetailInventoryWorkspace() {
                 <input
                   className={styles.textInput}
                   inputMode="decimal"
+                  min="0.01"
                   placeholder="$ 0.00"
+                  step="0.01"
                   type="number"
                   value={purchaseFormState.unitCost}
                   onChange={(event) =>
